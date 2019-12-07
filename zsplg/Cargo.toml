@@ -1,0 +1,17 @@
+[package]
+name = "zsplg"
+description = "Zscheile plugin library"
+version = "0.0.0"
+authors = ["Erik Zscheile <erik.zscheile@gmail.com>"]
+edition = "2018"
+keywords = ["ffi"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/zserik/zsplg/tree/master/zsplg"
+
+[lib]
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+zsplg-core = { path = "../core" }
+libloading = "0.5"
+os_str_bytes = "0.1.3"

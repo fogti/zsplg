@@ -1,0 +1,16 @@
+[package]
+name = "zsplg-core"
+description = "Zscheile plugin library core"
+version = "0.0.0"
+authors = ["Erik Zscheile <erik.zscheile@gmail.com>"]
+edition = "2018"
+keywords = ["ffi"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/zserik/zsplg/tree/master/core"
+
+[features]
+default = ["std"]
+std = []
+
+[dependencies]
+dyn_sized = { version = "0.2", optional = true }
