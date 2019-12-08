@@ -70,6 +70,7 @@ pub struct Wrapper {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[repr(transparent)]
 pub struct WrapSized<T>(pub T);
 
 pub unsafe trait Wrapped {
@@ -242,6 +243,7 @@ impl Wrapper {
 }
 
 #[derive(Debug, PartialEq)]
+#[repr(transparent)]
 pub struct WrapWithDrop(pub Wrapper);
 
 impl Drop for WrapWithDrop {
