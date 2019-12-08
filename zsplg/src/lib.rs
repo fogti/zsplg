@@ -109,3 +109,13 @@ impl RTMultiFn for Handle {
         self.parent.call_intern(Some(&self.user_data), fname, args)
     }
 }
+
+impl<T> RTMultiFn for zsplg_core::WrapSized<T>
+where
+    T: RTMultiFn,
+{
+    #[inline]
+    fn call(&self, fname: &CStr, args: &[FFIWrapper]) -> Result<FFIWrapper, std::io::Error> {
+        self.0.call(fname, args)
+    }
+}

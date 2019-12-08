@@ -54,15 +54,13 @@ pub unsafe extern "C" fn zsplg_call(
 ) -> ResultWrap {
     let rtmf: Arc<dyn crate::RTMultiFn> =
         if let Some(handle) = obj.try_cast_raw::<zsplg_core::WrapSized<Handle>>() {
-            std::mem::transmute::<_, Arc<Handle>>(handle)
+            handle
         } else if let Some(plg) = obj.try_cast_raw::<zsplg_core::WrapSized<Plugin>>() {
-            std::mem::transmute::<_, Arc<Plugin>>(plg)
+            plg
         } else {
             return crate::ffi_intern::Result::Err(Wrapper::new(FFIError::Cast));
         };
-    let fname = CStr::from_ptr(fname);
-    let args = std::slice::from_raw_parts(argv, argc);
-    wrap_to_c(rtmf.call(fname, args))
+    wrap_to_c(rtmf.call(CStr::from_ptr(fname), std::slice::from_raw_parts(argv, argc)))
 }
 
 /// This function converts an error to a wrapped string
