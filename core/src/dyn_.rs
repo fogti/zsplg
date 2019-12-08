@@ -2,8 +2,8 @@ use super::{Wrapped, WrapperInner};
 use dyn_sized::DynSized;
 
 mod private {
-    use core::ffi::c_void;
     use crate::WrapMeta;
+    use core::ffi::c_void;
 
     pub trait MetaWrapped: Sized {
         fn wrap(self) -> WrapMeta;
@@ -62,14 +62,14 @@ where
     }
 
     fn as_ptr(x: &WrapperInner) -> *const Self {
-    let (meta, data) = if let Some(meta) = <T::Meta as private::MetaWrapped>::unwrap(x.meta) {
-        (meta, x.data as *mut ())
-    } else {
-        (
-            <T::Meta as private::MetaWrapped>::null(),
-            core::ptr::null_mut(),
-        )
-    };
+        let (meta, data) = if let Some(meta) = <T::Meta as private::MetaWrapped>::unwrap(x.meta) {
+            (meta, x.data as *mut ())
+        } else {
+            (
+                <T::Meta as private::MetaWrapped>::null(),
+                core::ptr::null_mut(),
+            )
+        };
         DynSized::assemble(meta, data)
     }
 }

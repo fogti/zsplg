@@ -1,9 +1,12 @@
 pub mod ffi_extern;
 pub mod ffi_intern;
 
-use std::{ffi::{CStr, OsStr}, sync::Arc};
-use zsplg_core::Wrapper as FFIWrapper;
 use libloading::Symbol;
+use std::{
+    ffi::{CStr, OsStr},
+    sync::Arc,
+};
+use zsplg_core::Wrapper as FFIWrapper;
 
 pub struct Plugin {
     user_data: FFIWrapper,
@@ -30,7 +33,8 @@ impl Drop for Handle {
 
 impl Plugin {
     fn get_fn<T>(&self, prefix: &[u8], name: &[u8]) -> Result<Symbol<'_, T>, std::io::Error> {
-        let mut real_name: Vec<u8> = Vec::with_capacity(self.modname.len() + prefix.len() + name.len() + 2);
+        let mut real_name: Vec<u8> =
+            Vec::with_capacity(self.modname.len() + prefix.len() + name.len() + 2);
         real_name.extend(self.modname.iter().copied());
         real_name.push(b'_');
         real_name.extend(prefix.iter().copied());
@@ -71,11 +75,20 @@ impl Plugin {
         })
     }
 
-    fn call_intern(&self, hsel: Option<&FFIWrapper>, fname: &CStr, args: &[FFIWrapper]) -> Result<FFIWrapper, std::io::Error> {
+    fn call_intern(
+        &self,
+        hsel: Option<&FFIWrapper>,
+        fname: &CStr,
+        args: &[FFIWrapper],
+    ) -> Result<FFIWrapper, std::io::Error> {
         let xfn: Symbol<extern "C" fn(*const FFIWrapper, usize, *const FFIWrapper) -> FFIWrapper> =
             self.get_fn(if hsel.is_some() { b"h_" } else { b"_" }, fname.to_bytes())?;
 
-        Ok(xfn(hsel.unwrap_or(&self.user_data), args.len(), args.as_ptr()))
+        Ok(xfn(
+            hsel.unwrap_or(&self.user_data),
+            args.len(),
+            args.as_ptr(),
+        ))
     }
 }
 

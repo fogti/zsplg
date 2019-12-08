@@ -1,6 +1,6 @@
 use std::fmt;
-pub use zsplg_core::{bool_to_c, c_bool, Wrapper};
 use std::io::Error as IoError;
+pub use zsplg_core::{bool_to_c, c_bool, Wrapper};
 
 #[derive(Debug)]
 pub enum Error {
@@ -19,10 +19,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Io(e) => fmt::Display::fmt(e, f),
-            Error::Cast => write!(
-                f,
-                "wrapper cast failed"
-            ),
+            Error::Cast => write!(f, "wrapper cast failed"),
             Error::Encoding => write!(
                 f,
                 "byte sequence is not representable in the platform encoding"
@@ -44,7 +41,9 @@ where
     fn from(x: ::std::result::Result<T, E>) -> Result<T> {
         match x {
             ::std::result::Result::Ok(y) => Result::Ok(y),
-            ::std::result::Result::Err(y) => Result::Err(unsafe { Wrapper::new::<Error>(y.into()) }),
+            ::std::result::Result::Err(y) => {
+                Result::Err(unsafe { Wrapper::new::<Error>(y.into()) })
+            }
         }
     }
 }
