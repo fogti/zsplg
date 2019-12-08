@@ -5,7 +5,7 @@ extern crate alloc;
 #[cfg(feature = "dyn_sized")]
 mod dyn_;
 
-use alloc::boxed::Box;
+use alloc::sync::Arc;
 use core::ffi::c_void;
 
 #[allow(non_camel_case_types)]
@@ -42,7 +42,7 @@ pub enum WrapMeta {
 #[must_use]
 #[derive(Clone, Copy, PartialEq)]
 pub struct WrapperInner {
-    pub data: *mut c_void,
+    pub data: *const c_void,
     pub meta: WrapMeta,
 }
 
@@ -71,25 +71,20 @@ pub struct Wrapper {
 
 pub struct WrapSized<T>(pub T);
 pub unsafe trait Wrapped {
-    fn wrap(x: *mut Self) -> WrapperInner;
+    fn wrap(x: *const Self) -> WrapperInner;
     fn as_ptr(x: &WrapperInner) -> *const Self;
-    fn as_mut_ptr(x: &mut WrapperInner) -> *mut Self;
 }
 
 unsafe impl<T: Sized> Wrapped for WrapSized<T> {
-    fn wrap(x: *mut Self) -> WrapperInner {
+    fn wrap(x: *const Self) -> WrapperInner {
         WrapperInner {
-            data: x as *mut c_void,
+            data: x as *const c_void,
             meta: WrapMeta::Bytes(core::mem::size_of::<T>()),
         }
     }
 
     fn as_ptr(x: &WrapperInner) -> *const Self {
         x.data as *const Self
-    }
-
-    fn as_mut_ptr(x: &mut WrapperInner) -> *mut Self {
-        x.data as *mut Self
     }
 }
 
@@ -102,7 +97,7 @@ where
         false
     } else {
         let real_dtor = || {
-            core::mem::drop(unsafe { Box::from_raw(<T as Wrapped>::as_mut_ptr(&mut *data)) });
+            core::mem::drop(unsafe { Arc::from_raw(<T as Wrapped>::as_ptr(&*data)) });
         };
 
         #[cfg(not(feature = "std"))]
@@ -115,20 +110,27 @@ where
     })
 }
 
+impl WrapperInner {
+    /// Constructs an empty inner ffi wrapper
+    pub fn null() -> Self {
+        Self {
+            data: core::ptr::null_mut(),
+            meta: WrapMeta::None,
+        }
+    }
+}
+
 impl Wrapper {
     /// This is a convenient wrapper, which moves T to the heap
     /// and then calls [`Wrapper::from`].
     pub unsafe fn new<T>(x: T) -> Self {
-        Self::from(Box::new(WrapSized(x)))
+        Self::from(Arc::new(WrapSized(x)))
     }
 
     /// Constructs an empty ffi wrapper
     pub fn null() -> Self {
         Self {
-            inner: WrapperInner {
-                data: core::ptr::null_mut(),
-                meta: WrapMeta::None,
-            },
+            inner: WrapperInner::null(),
             destroy: None,
         }
     }
@@ -138,24 +140,14 @@ impl Wrapper {
     /// # Safety
     /// This function allows possible violations of constraints on T
     /// if used incorrectly (e.g. double free).
-    pub unsafe fn from<T>(x: Box<T>) -> Self
+    pub unsafe fn from<T>(x: Arc<T>) -> Self
     where
         T: ?Sized + Wrapped,
     {
         Self {
-            inner: Wrapped::wrap(Box::into_raw(x)),
+            inner: Wrapped::wrap(Arc::into_raw(x)),
             destroy: Some(ffiwrap_destroy::<T>),
         }
-    }
-
-    /// This function only works for native rust types
-    /// and only when the Wrapper was constructed using
-    /// [`Wrapper::from`].
-    fn has_type<T>(&self) -> bool
-    where
-        T: ?Sized + Wrapped,
-    {
-        self.destroy == Some(ffiwrap_destroy::<T>)
     }
 
     /// This function allows casting to the original type
@@ -168,21 +160,8 @@ impl Wrapper {
     where
         T: ?Sized + Wrapped,
     {
-        if self.has_type::<T>() {
+        if self.destroy == Some(ffiwrap_destroy::<T>) {
             unsafe { <T as Wrapped>::as_ptr(&self.inner).as_ref() }
-        } else {
-            None
-        }
-    }
-
-    /// Mutable variant of [`Wrapper::try_cast`],
-    /// see that method for more information about this mechanism.
-    pub fn try_cast_mut<T>(&mut self) -> Option<&mut T>
-    where
-        T: ?Sized + Wrapped,
-    {
-        if self.has_type::<T>() {
-            unsafe { <T as Wrapped>::as_mut_ptr(&mut self.inner).as_mut() }
         } else {
             None
         }
@@ -199,15 +178,6 @@ impl Wrapper {
         T: Sized,
     {
         self.try_cast::<WrapSized<T>>().map(|x| &x.0)
-    }
-
-    /// Mutable variant of [`Wrapper::try_cast_sized`],
-    /// see that method for more information about this mechanism.
-    pub fn try_cast_sized_mut<T>(&mut self) -> Option<&mut T>
-    where
-        T: Sized,
-    {
-        self.try_cast_mut::<WrapSized<T>>().map(|x| &mut x.0)
     }
 
     pub fn call_dtor(&mut self) -> bool {
@@ -240,11 +210,5 @@ impl core::ops::Deref for WrapWithDrop {
 
     fn deref(&self) -> &Wrapper {
         &self.0
-    }
-}
-
-impl core::ops::DerefMut for WrapWithDrop {
-    fn deref_mut(&mut self) -> &mut Wrapper {
-        &mut self.0
     }
 }

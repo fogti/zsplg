@@ -48,41 +48,28 @@ mod private {
     }
 }
 
-fn prepare_assemble<T>(x: WrapperInner) -> (T::Meta, *mut ())
+unsafe impl<T> Wrapped for T
 where
     T: ?Sized + dyn_sized::DynSized,
     T::Meta: Copy + private::MetaWrapped,
 {
-    if let Some(meta) = <T::Meta as private::MetaWrapped>::unwrap(x.meta) {
+    fn wrap(x: *const Self) -> WrapperInner {
+        let (meta, ptr) = DynSized::disassemble(x);
+        WrapperInner {
+            data: ptr as *const super::c_void,
+            meta: private::MetaWrapped::wrap(meta),
+        }
+    }
+
+    fn as_ptr(x: &WrapperInner) -> *const Self {
+    let (meta, data) = if let Some(meta) = <T::Meta as private::MetaWrapped>::unwrap(x.meta) {
         (meta, x.data as *mut ())
     } else {
         (
             <T::Meta as private::MetaWrapped>::null(),
             core::ptr::null_mut(),
         )
-    }
-}
-
-unsafe impl<T> Wrapped for T
-where
-    T: ?Sized + dyn_sized::DynSized,
-    T::Meta: Copy + private::MetaWrapped,
-{
-    fn wrap(x: *mut Self) -> WrapperInner {
-        let (meta, ptr) = DynSized::disassemble_mut(x);
-        WrapperInner {
-            data: ptr as *mut super::c_void,
-            meta: private::MetaWrapped::wrap(meta),
-        }
-    }
-
-    fn as_ptr(x: &WrapperInner) -> *const Self {
-        let (meta, data) = prepare_assemble::<T>(*x);
+    };
         DynSized::assemble(meta, data)
-    }
-
-    fn as_mut_ptr(x: &mut WrapperInner) -> *mut Self {
-        let (meta, data) = prepare_assemble::<T>(*x);
-        DynSized::assemble_mut(meta, data)
     }
 }

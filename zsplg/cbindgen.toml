@@ -9,7 +9,7 @@ prefix = "zsplg_"
 
 [parse]
 parse_deps = true
-include = ["std", "zsplg-core"]
+include = ["zsplg-core"]
 
 [fn]
 
