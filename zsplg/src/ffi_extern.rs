@@ -12,18 +12,18 @@ use crate::{Handle, Plugin};
 type ResultWrap = crate::ffi_intern::Result<Wrapper>;
 
 #[no_mangle]
-pub extern "C" fn zsplg_open(file: *const c_char, modname: *const c_char) -> ResultWrap {
+pub unsafe extern "C" fn zsplg_open(file: *const c_char, modname: *const c_char) -> ResultWrap {
     let file = if file.is_null() {
         None
     } else {
-        match os_str_bytes::OsStrBytes::from_bytes(unsafe { CStr::from_ptr(file).to_bytes() }) {
+        match os_str_bytes::OsStrBytes::from_bytes(CStr::from_ptr(file).to_bytes()) {
             Ok(x) => Some(x),
             Err(_) => return wrap_to_c::<Wrapper, _>(Err(FFIError::Encoding)),
         }
     };
     wrap_to_c(Plugin::new(
         file.as_ref().map(std::ops::Deref::deref),
-        unsafe { CStr::from_ptr(modname) },
+        CStr::from_ptr(modname),
     ))
 }
 
@@ -82,9 +82,9 @@ pub extern "C" fn zsplg_is_null(w: &Wrapper) -> c_bool {
 
 /// Clones the given string into a newly allocated object on the heap
 #[no_mangle]
-pub extern "C" fn zsplg_new_str(x: *const c_char) -> Wrapper {
+pub unsafe extern "C" fn zsplg_new_str(x: *const c_char) -> Wrapper {
     if !x.is_null() {
-        unsafe { Wrapper::new(CString::new(CStr::from_ptr(x).to_bytes().to_owned())) }
+        Wrapper::new(CString::new(CStr::from_ptr(x).to_bytes().to_owned()))
     } else {
         Wrapper::null()
     }
@@ -92,8 +92,8 @@ pub extern "C" fn zsplg_new_str(x: *const c_char) -> Wrapper {
 
 /// Needed to access the error string returned by `zsplg_error_to_str` or `zsplg_new_str`
 #[no_mangle]
-pub extern "C" fn zsplg_get_str(w: *const Wrapper) -> *const c_char {
-    if let Some(w) = unsafe { w.as_ref() } {
+pub unsafe extern "C" fn zsplg_get_str(w: *const Wrapper) -> *const c_char {
+    if let Some(w) = w.as_ref() {
         if let Some(x) = Wrapper::try_cast_sized::<CString>(w) {
             return x.as_ptr();
         }
@@ -102,6 +102,6 @@ pub extern "C" fn zsplg_get_str(w: *const Wrapper) -> *const c_char {
 }
 
 #[no_mangle]
-pub extern "C" fn zsplg_destroy(wrap: *mut Wrapper) -> c_bool {
-    bool_to_c(unsafe { wrap.as_mut().map(Wrapper::call_dtor) == Some(true) })
+pub unsafe extern "C" fn zsplg_destroy(wrap: *mut Wrapper) -> c_bool {
+    bool_to_c(wrap.as_mut().map(Wrapper::call_dtor) == Some(true))
 }
