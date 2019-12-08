@@ -30,7 +30,7 @@ pub fn c_to_bool(x: c_bool) -> bool {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum WrapMeta {
     None,
     Bytes(usize),
@@ -40,7 +40,7 @@ pub enum WrapMeta {
 
 #[repr(C)]
 #[must_use]
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WrapperInner {
     pub data: *const c_void,
     pub meta: WrapMeta,
@@ -60,7 +60,7 @@ pub struct WrapperInner {
 /// but this struct may be resetted (only while destructing).
 #[repr(C)]
 #[must_use]
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Wrapper {
     pub inner: WrapperInner,
 
@@ -69,7 +69,9 @@ pub struct Wrapper {
     pub destroy: Option<extern "C" fn(*mut WrapperInner) -> c_bool>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WrapSized<T>(pub T);
+
 pub unsafe trait Wrapped {
     fn wrap(x: *const Self) -> WrapperInner;
     fn as_ptr(x: &WrapperInner) -> *const Self;
@@ -150,6 +152,48 @@ impl Wrapper {
         }
     }
 
+    /// This function extracts the inner `Arc` without
+    /// incrementing the reference count
+    ///
+    /// This function only works for native rust types
+    /// and only when the Wrapper was constructed using
+    /// [`Wrapper::from`].
+    pub fn try_unwrap<T>(self) -> Result<Arc<T>, Self>
+    where
+        T: ?Sized + Wrapped,
+    {
+        if self.destroy == Some(ffiwrap_destroy::<T>) {
+            Ok(unsafe { Arc::from_raw(<T as Wrapped>::as_ptr(&self.inner)) })
+        } else {
+            Err(self)
+        }
+    }
+
+    /// This function allows casting to the inner type
+    /// while ensuring a minimal level of type safety.
+    /// It increments the reference counter of the inner object.
+    /// Dropping the returned object decreases the reference counter.
+    ///
+    /// This function only works for native rust types
+    /// and only when the Wrapper was constructed using
+    /// [`Wrapper::from`].
+    pub fn try_cast_raw<T>(&self) -> Option<Arc<T>>
+    where
+        T: ?Sized + Wrapped,
+    {
+        if self.destroy == Some(ffiwrap_destroy::<T>) {
+            let tmp = unsafe { Arc::from_raw(<T as Wrapped>::as_ptr(&self.inner)) };
+            // increment the reference count by one because the original
+            // reference is preserved, but `Arc::from_raw` expects that
+            // we moved the reference
+            let ret = tmp.clone();
+            std::mem::forget(tmp);
+            Some(ret)
+        } else {
+            None
+        }
+    }
+
     /// This function allows casting to the original type
     /// while ensuring a minimal level of type safety.
     ///
@@ -197,6 +241,7 @@ impl Wrapper {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub struct WrapWithDrop(pub Wrapper);
 
 impl Drop for WrapWithDrop {
