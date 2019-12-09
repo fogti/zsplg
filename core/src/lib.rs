@@ -15,20 +15,6 @@ pub const c_false: c_bool = 0;
 #[allow(non_upper_case_globals)]
 pub const c_true: c_bool = 1;
 
-#[inline(always)]
-pub fn bool_to_c(x: bool) -> c_bool {
-    if x {
-        c_true
-    } else {
-        c_false
-    }
-}
-
-#[inline(always)]
-pub fn c_to_bool(x: c_bool) -> bool {
-    x != c_false
-}
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum WrapMeta {
@@ -64,23 +50,28 @@ pub struct WrapperInner {
 pub struct Wrapper {
     pub inner: WrapperInner,
 
+    pub typ: Option<core::any::TypeId>,
+
     /// The .destroy function may only be called with .inner
     /// as argument and must be called at most once
-    pub destroy: Option<extern "C" fn(*mut WrapperInner) -> c_bool>,
+    pub destroy: Option<extern "C" fn(*mut WrapperInner) -> bool>,
 
     pub klone: Option<extern "C" fn(&WrapperInner) -> WrapperInner>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(transparent)]
-pub struct WrapSized<T>(pub T);
+pub struct WrapSized<T: 'static>(pub T);
 
-pub unsafe trait Wrapped {
+pub unsafe trait Wrapped: 'static {
     fn wrap(x: *const Self) -> WrapperInner;
     fn as_ptr(x: &WrapperInner) -> *const Self;
 }
 
-unsafe impl<T: Sized> Wrapped for WrapSized<T> {
+unsafe impl<T> Wrapped for WrapSized<T>
+where
+    T: Sized + 'static,
+{
     fn wrap(x: *const Self) -> WrapperInner {
         WrapperInner {
             data: x as *const c_void,
@@ -94,11 +85,11 @@ unsafe impl<T: Sized> Wrapped for WrapSized<T> {
 }
 
 /// This function is the default destructor
-extern "C" fn ffiwrap_destroy<T>(data: *mut WrapperInner) -> c_bool
+extern "C" fn ffiwrap_destroy<T>(data: *mut WrapperInner) -> bool
 where
     T: ?Sized + Wrapped,
 {
-    bool_to_c(if let Some(inner) = unsafe { data.as_mut() } {
+    if let Some(inner) = unsafe { data.as_mut() } {
         let ret = if inner.data.is_null() {
             false
         } else {
@@ -125,7 +116,7 @@ where
         ret
     } else {
         false
-    })
+    }
 }
 
 /// This function is the default klone method
@@ -155,7 +146,7 @@ impl WrapperInner {
 impl Wrapper {
     /// This is a convenient wrapper, which moves T to the heap
     /// and then calls [`Wrapper::from`].
-    pub unsafe fn new<T>(x: T) -> Self {
+    pub unsafe fn new<T: 'static>(x: T) -> Self {
         Self::from(Arc::new(WrapSized(x)))
     }
 
@@ -163,12 +154,14 @@ impl Wrapper {
     pub fn null() -> Self {
         Self {
             inner: WrapperInner::null(),
+            typ: None,
             destroy: None,
             klone: None,
         }
     }
 
     /// Checks if an ffi wrapper is empty
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.destroy.is_none() && self.inner == WrapperInner::null()
     }
@@ -184,6 +177,7 @@ impl Wrapper {
     {
         Self {
             inner: Wrapped::wrap(Arc::into_raw(x)),
+            typ: Some(core::any::TypeId::of::<T>()),
             destroy: Some(ffiwrap_destroy::<T>),
             klone: Some(ffiwrap_klone::<T>),
         }
@@ -192,9 +186,34 @@ impl Wrapper {
     pub fn try_ptr_clone(&self) -> Option<Wrapper> {
         self.klone.map(|i| Wrapper {
             inner: i(&self.inner),
+            typ: self.typ.clone(),
             destroy: self.destroy.clone(),
             klone: Some(i),
         })
+    }
+
+    /// This function only works for native rust types
+    /// and only when the Wrapper was constructed using
+    /// [`Wrapper::from`].
+    #[inline(always)]
+    fn is_of_type<T>(&self) -> bool
+    where
+        T: ?Sized + 'static,
+    {
+        self.typ == Some(core::any::TypeId::of::<T>())
+    }
+
+    /// convenient wrapper around [`Wrapper::is_of_type`]
+    fn map_on_type<T, R, F>(&self, f: F) -> Option<R>
+    where
+        T: ?Sized + Wrapped,
+        F: FnOnce(*const T) -> Option<R>,
+    {
+        if self.is_of_type::<T>() {
+            f(<T as Wrapped>::as_ptr(&self.inner))
+        } else {
+            None
+        }
     }
 
     /// This function extracts the inner `Arc` without
@@ -207,7 +226,7 @@ impl Wrapper {
     where
         T: ?Sized + Wrapped,
     {
-        if self.destroy == Some(ffiwrap_destroy::<T>) {
+        if self.is_of_type::<T>() {
             Ok(unsafe { Arc::from_raw(<T as Wrapped>::as_ptr(&self.inner)) })
         } else {
             Err(self)
@@ -226,17 +245,15 @@ impl Wrapper {
     where
         T: ?Sized + Wrapped,
     {
-        if self.destroy == Some(ffiwrap_destroy::<T>) {
-            let tmp = unsafe { Arc::from_raw(<T as Wrapped>::as_ptr(&self.inner)) };
+        self.map_on_type::<T, _, _>(|ptr| {
+            let tmp = unsafe { Arc::from_raw(ptr) };
             // increment the reference count by one because the original
             // reference is preserved, but `Arc::from_raw` expects that
             // we moved the reference
             let ret = tmp.clone();
             core::mem::forget(tmp);
             Some(ret)
-        } else {
-            None
-        }
+        })
     }
 
     /// This function allows casting to the original type
@@ -249,11 +266,7 @@ impl Wrapper {
     where
         T: ?Sized + Wrapped,
     {
-        if self.destroy == Some(ffiwrap_destroy::<T>) {
-            unsafe { <T as Wrapped>::as_ptr(&self.inner).as_ref() }
-        } else {
-            None
-        }
+        self.map_on_type::<T, _, _>(|ptr| unsafe { ptr.as_ref() })
     }
 
     /// This function allows casting to the original type
@@ -262,18 +275,12 @@ impl Wrapper {
     /// This function only works for native rust types
     /// and only when the Wrapper was constructed using
     /// [`Wrapper::new`].
-    pub fn try_cast_sized<T>(&self) -> Option<&T>
-    where
-        T: Sized,
-    {
+    pub fn try_cast_sized<T: 'static>(&self) -> Option<&T> {
         self.try_cast::<WrapSized<T>>().map(|x| &x.0)
     }
 
     pub fn call_dtor(&mut self) -> bool {
-        let ret = self
-            .destroy
-            .take()
-            .map(|destroy| c_to_bool(destroy(&mut self.inner)));
+        let ret = self.destroy.take().map(|destroy| destroy(&mut self.inner));
 
         // To catch 'use-after-free' bugs regardless of the return
         // value of 'destroy', we always reset the 'data' ptr.

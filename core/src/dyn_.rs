@@ -50,7 +50,7 @@ mod private {
 
 unsafe impl<T> Wrapped for T
 where
-    T: ?Sized + dyn_sized::DynSized,
+    T: ?Sized + dyn_sized::DynSized + 'static,
     T::Meta: Copy + private::MetaWrapped,
 {
     fn wrap(x: *const Self) -> WrapperInner {

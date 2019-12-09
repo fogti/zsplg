@@ -1,6 +1,6 @@
 use std::fmt;
 use std::io::Error as IoError;
-pub use zsplg_core::{bool_to_c, c_bool, Wrapper};
+use zsplg_core::Wrapper;
 
 #[derive(Debug)]
 pub enum Error {
@@ -50,6 +50,7 @@ where
 
 pub fn wrap_to_c<T, E>(x: ::std::result::Result<T, E>) -> Result<Wrapper>
 where
+    T: 'static,
     E: Into<Error>,
 {
     x.map(|y| unsafe { Wrapper::new(y) }).into()

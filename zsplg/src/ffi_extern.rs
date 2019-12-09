@@ -4,7 +4,7 @@ use std::{
     os::raw::c_char,
     sync::Arc,
 };
-use zsplg_core::{bool_to_c, c_bool, Wrapper};
+use zsplg_core::Wrapper;
 
 use crate::ffi_intern::{wrap_to_c, Error as FFIError};
 use crate::{Handle, Plugin};
@@ -60,7 +60,10 @@ pub unsafe extern "C" fn zsplg_call(
         } else {
             return crate::ffi_intern::Result::Err(Wrapper::new(FFIError::Cast));
         };
-    wrap_to_c(rtmf.call(CStr::from_ptr(fname), std::slice::from_raw_parts(argv, argc)))
+    wrap_to_c(rtmf.call(
+        CStr::from_ptr(fname),
+        std::slice::from_raw_parts(argv, argc),
+    ))
 }
 
 /// This function converts an error to a wrapped string
@@ -74,8 +77,8 @@ pub extern "C" fn zsplg_error_to_str(e: &Wrapper) -> Wrapper {
 }
 
 #[no_mangle]
-pub extern "C" fn zsplg_is_null(w: &Wrapper) -> c_bool {
-    bool_to_c(w.is_empty())
+pub extern "C" fn zsplg_is_null(w: &Wrapper) -> bool {
+    w.is_empty()
 }
 
 /// Clones the given string into a newly allocated object on the heap
@@ -100,6 +103,6 @@ pub unsafe extern "C" fn zsplg_get_str(w: *const Wrapper) -> *const c_char {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn zsplg_destroy(wrap: *mut Wrapper) -> c_bool {
-    bool_to_c(wrap.as_mut().map(Wrapper::call_dtor) == Some(true))
+pub unsafe extern "C" fn zsplg_destroy(wrap: *mut Wrapper) -> bool {
+    wrap.as_mut().map(Wrapper::call_dtor) == Some(true)
 }
