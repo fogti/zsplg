@@ -1,7 +1,7 @@
 [package]
 name = "zsplg-core"
 description = "Zscheile plugin library core"
-version = "0.0.0"
+version = "0.0.0-alpha1"
 authors = ["Erik Zscheile <erik.zscheile@gmail.com>"]
 edition = "2018"
 keywords = ["ffi"]
