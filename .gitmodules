@@ -1,0 +1,3 @@
+[submodule "dynstack"]
+	path = dynstack
+	url = https://github.com/archshift/dynstack.git

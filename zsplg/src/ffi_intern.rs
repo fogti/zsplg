@@ -1,6 +1,5 @@
 use std::fmt;
 use std::io::Error as IoError;
-use zsplg_core::Wrapper;
 
 #[derive(Debug)]
 pub enum Error {
@@ -26,32 +25,4 @@ impl fmt::Display for Error {
             ),
         }
     }
-}
-
-#[repr(C)]
-pub enum Result<T> {
-    Ok(T),
-    Err(Wrapper),
-}
-
-impl<T, E> From<::std::result::Result<T, E>> for Result<T>
-where
-    E: Into<Error>,
-{
-    fn from(x: ::std::result::Result<T, E>) -> Result<T> {
-        match x {
-            ::std::result::Result::Ok(y) => Result::Ok(y),
-            ::std::result::Result::Err(y) => {
-                Result::Err(unsafe { Wrapper::new::<Error>(y.into()) })
-            }
-        }
-    }
-}
-
-pub fn wrap_to_c<T, E>(x: ::std::result::Result<T, E>) -> Result<Wrapper>
-where
-    T: 'static,
-    E: Into<Error>,
-{
-    x.map(|y| unsafe { Wrapper::new(y) }).into()
 }

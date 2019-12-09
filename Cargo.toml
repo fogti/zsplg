@@ -1,4 +1,7 @@
 [workspace]
+exclude = [
+    "dynstack",
+]
 members = [
     "core",
     "zsplg",

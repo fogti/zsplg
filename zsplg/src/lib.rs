@@ -1,33 +1,29 @@
 pub mod ffi_extern;
 pub mod ffi_intern;
+use ffi_extern::{Object, RealOptObj};
 
 use libloading::Symbol;
 use std::{
+    any::Any,
     ffi::{CStr, OsStr},
     sync::Arc,
 };
-use zsplg_core::Wrapper as FFIWrapper;
 
 pub struct Plugin {
-    user_data: FFIWrapper,
+    user_data: Option<Arc<dyn Any + Send + Sync>>,
     modname: Vec<u8>,
     dlh: libloading::Library,
 }
 
 pub struct Handle {
-    user_data: FFIWrapper,
+    user_data: Arc<dyn Any + Send + Sync>,
     parent: Arc<Plugin>,
 }
 
 impl Drop for Plugin {
     fn drop(&mut self) {
-        self.user_data.call_dtor();
-    }
-}
-
-impl Drop for Handle {
-    fn drop(&mut self) {
-        self.user_data.call_dtor();
+        // we must free the user_data before the 'parent' object is destroyed
+        self.user_data.take();
     }
 }
 
@@ -45,7 +41,7 @@ impl Plugin {
 
     pub fn new(file: Option<&OsStr>, modname: &CStr) -> Result<Plugin, std::io::Error> {
         let mut ret = Plugin {
-            user_data: FFIWrapper::null(),
+            user_data: None,
             modname: modname.to_bytes().to_owned(),
             dlh: match file {
                 Some(file) => libloading::Library::new(file)?,
@@ -61,61 +57,69 @@ impl Plugin {
             },
         };
         // call initialization function
-        ret.user_data = (ret.get_fn::<extern "C" fn() -> FFIWrapper>(b"", b"init")?)();
+        ret.user_data =
+            (ret.get_fn::<extern "C" fn() -> ffi_extern::Object>(b"", b"init")?)().into();
         Ok(ret)
     }
 
-    pub fn create_handle(this: &Arc<Self>, args: &[FFIWrapper]) -> Result<Handle, std::io::Error> {
-        let hcfn: Symbol<extern "C" fn(*const FFIWrapper, usize, *const FFIWrapper) -> FFIWrapper> =
+    pub fn create_handle(this: &Arc<Self>, args: &[Object]) -> Result<Handle, std::io::Error> {
+        let hcfn: Symbol<extern "C" fn(Object, usize, *const Object) -> Object> =
             this.get_fn(b"", b"hcreate")?;
 
-        Ok(Handle {
-            user_data: hcfn(&this.user_data, args.len(), args.as_ptr()),
+        // ref
+        let xsel: Object = Some(this.user_data.as_ref().unwrap().clone()).into();
+        let user_data: RealOptObj = hcfn(xsel, args.len(), args.as_ptr()).into();
+
+        let ret = Ok(Handle {
+            user_data: user_data.unwrap(),
             parent: Arc::clone(this),
-        })
+        });
+
+        // unref
+        let _: RealOptObj = xsel.into();
+
+        ret
     }
 
     fn call_intern(
         &self,
-        hsel: Option<&FFIWrapper>,
+        hsel: Option<&Arc<dyn Any + Send + Sync>>,
         fname: &CStr,
-        args: &[FFIWrapper],
-    ) -> Result<FFIWrapper, std::io::Error> {
-        let xfn: Symbol<extern "C" fn(*const FFIWrapper, usize, *const FFIWrapper) -> FFIWrapper> =
+        args: &[Object],
+    ) -> Result<Object, std::io::Error> {
+        let xfn: Symbol<extern "C" fn(Object, usize, *const Object) -> Object> =
             self.get_fn(if hsel.is_some() { b"h_" } else { b"_" }, fname.to_bytes())?;
 
-        Ok(xfn(
-            hsel.unwrap_or(&self.user_data),
-            args.len(),
-            args.as_ptr(),
-        ))
+        // ref
+        let xsel: RealOptObj = Some(
+            hsel.unwrap_or_else(|| self.user_data.as_ref().unwrap())
+                .clone(),
+        );
+        let xsel: Object = xsel.into();
+
+        let ret = Ok(xfn(xsel, args.len(), args.as_ptr()));
+
+        // unref
+        let _: RealOptObj = xsel.into();
+
+        ret
     }
 }
 
 pub trait RTMultiFn {
-    fn call(&self, fname: &CStr, args: &[FFIWrapper]) -> Result<FFIWrapper, std::io::Error>;
+    fn call(&self, fname: &CStr, args: &[Object]) -> Result<Object, std::io::Error>;
 }
 
 impl RTMultiFn for Plugin {
     #[inline]
-    fn call(&self, fname: &CStr, args: &[FFIWrapper]) -> Result<FFIWrapper, std::io::Error> {
+    fn call(&self, fname: &CStr, args: &[Object]) -> Result<Object, std::io::Error> {
         self.call_intern(None, fname, args)
     }
 }
 
 impl RTMultiFn for Handle {
     #[inline]
-    fn call(&self, fname: &CStr, args: &[FFIWrapper]) -> Result<FFIWrapper, std::io::Error> {
+    fn call(&self, fname: &CStr, args: &[Object]) -> Result<Object, std::io::Error> {
         self.parent.call_intern(Some(&self.user_data), fname, args)
-    }
-}
-
-impl<T> RTMultiFn for zsplg_core::WrapSized<T>
-where
-    T: RTMultiFn,
-{
-    #[inline]
-    fn call(&self, fname: &CStr, args: &[FFIWrapper]) -> Result<FFIWrapper, std::io::Error> {
-        self.0.call(fname, args)
     }
 }
