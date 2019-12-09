@@ -12,6 +12,6 @@ repository = "https://github.com/zserik/zsplg/tree/master/zsplg"
 crate-type = ["lib", "cdylib"]
 
 [dependencies]
-zsplg-core = { path = "../core" }
+zsplg-core = { path = "../core", version = "0.0.0-alpha1" }
 libloading = "0.5"
 os_str_bytes = "0.1.3"
