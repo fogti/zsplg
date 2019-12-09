@@ -60,13 +60,15 @@ pub struct WrapperInner {
 /// but this struct may be resetted (only while destructing).
 #[repr(C)]
 #[must_use]
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy)]
 pub struct Wrapper {
     pub inner: WrapperInner,
 
     /// The .destroy function may only be called with .inner
     /// as argument and must be called at most once
     pub destroy: Option<extern "C" fn(*mut WrapperInner) -> c_bool>,
+
+    pub klone: Option<extern "C" fn(&WrapperInner) -> WrapperInner>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -96,21 +98,48 @@ extern "C" fn ffiwrap_destroy<T>(data: *mut WrapperInner) -> c_bool
 where
     T: ?Sized + Wrapped,
 {
-    bool_to_c(if data.is_null() || unsafe { (*data).data.is_null() } {
-        false
-    } else {
-        let real_dtor = || {
-            core::mem::drop(unsafe { Arc::from_raw(<T as Wrapped>::as_ptr(&*data)) });
+    bool_to_c(if let Some(inner) = unsafe { data.as_mut() } {
+        let ret = if inner.data.is_null() {
+            false
+        } else {
+            let real_dtor = || {
+                core::mem::drop(unsafe { Arc::from_raw(<T as Wrapped>::as_ptr(&inner)) });
+            };
+
+            #[cfg(not(feature = "std"))]
+            real_dtor();
+            #[cfg(feature = "std")]
+            let ret = std::panic::catch_unwind(real_dtor).is_ok();
+            #[cfg(not(feature = "std"))]
+            let ret = true;
+            ret
         };
 
-        #[cfg(not(feature = "std"))]
-        real_dtor();
-        #[cfg(feature = "std")]
-        let ret = std::panic::catch_unwind(real_dtor).is_ok();
-        #[cfg(not(feature = "std"))]
-        let ret = true;
+        // To catch 'use-after-free' bugs regardless of the return
+        // value of 'destroy', we always reset the 'data' ptr.
+        inner.data = core::ptr::null();
+
+        // Reset the rest of this struct
+        inner.meta = WrapMeta::None;
+
         ret
+    } else {
+        false
     })
+}
+
+/// This function is the default klone method
+extern "C" fn ffiwrap_klone<T>(inner: &WrapperInner) -> WrapperInner
+where
+    T: ?Sized + Wrapped,
+{
+    let tmp = unsafe { Arc::from_raw(<T as Wrapped>::as_ptr(inner)) };
+    // increment the reference count by one because the original
+    // reference is preserved, but `Arc::from_raw` expects that
+    // we moved the reference
+    let ret = tmp.clone();
+    core::mem::forget(tmp);
+    <T as Wrapped>::wrap(Arc::into_raw(ret))
 }
 
 impl WrapperInner {
@@ -135,7 +164,13 @@ impl Wrapper {
         Self {
             inner: WrapperInner::null(),
             destroy: None,
+            klone: None,
         }
+    }
+
+    /// Checks if an ffi wrapper is empty
+    pub fn is_empty(&self) -> bool {
+        self.destroy.is_none() && self.inner == WrapperInner::null()
     }
 
     /// This function constructs a new Wrapper.
@@ -150,7 +185,16 @@ impl Wrapper {
         Self {
             inner: Wrapped::wrap(Arc::into_raw(x)),
             destroy: Some(ffiwrap_destroy::<T>),
+            klone: Some(ffiwrap_klone::<T>),
         }
+    }
+
+    pub fn try_ptr_clone(&self) -> Option<Wrapper> {
+        self.klone.map(|i| Wrapper {
+            inner: i(&self.inner),
+            destroy: self.destroy.clone(),
+            klone: Some(i),
+        })
     }
 
     /// This function extracts the inner `Arc` without
@@ -188,7 +232,7 @@ impl Wrapper {
             // reference is preserved, but `Arc::from_raw` expects that
             // we moved the reference
             let ret = tmp.clone();
-            std::mem::forget(tmp);
+            core::mem::forget(tmp);
             Some(ret)
         } else {
             None
@@ -237,12 +281,12 @@ impl Wrapper {
 
         // Reset the rest of this struct
         self.inner.meta = WrapMeta::None;
+        self.klone = None;
 
         ret.unwrap_or(false)
     }
 }
 
-#[derive(Debug, PartialEq)]
 #[repr(transparent)]
 pub struct WrapWithDrop(pub Wrapper);
 

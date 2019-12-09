@@ -75,7 +75,7 @@ pub extern "C" fn zsplg_error_to_str(e: &Wrapper) -> Wrapper {
 
 #[no_mangle]
 pub extern "C" fn zsplg_is_null(w: &Wrapper) -> c_bool {
-    bool_to_c(w == &Wrapper::null())
+    bool_to_c(w.is_empty())
 }
 
 /// Clones the given string into a newly allocated object on the heap
