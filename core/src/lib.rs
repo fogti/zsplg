@@ -8,12 +8,7 @@ mod dyn_;
 use alloc::sync::Arc;
 use core::ffi::c_void;
 
-#[allow(non_camel_case_types)]
-pub type c_bool = u8;
-#[allow(non_upper_case_globals)]
-pub const c_false: c_bool = 0;
-#[allow(non_upper_case_globals)]
-pub const c_true: c_bool = 1;
+pub type TypeId = u64;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -22,6 +17,33 @@ pub enum WrapMeta {
     Bytes(usize),
     Length(usize),
     TraitObject(*mut c_void),
+}
+
+/// hack for cbindgen; see [`Wrapper::typ`]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct OptionalTypeId {
+    tag: bool,
+    data: TypeId,
+}
+
+impl From<Option<core::any::TypeId>> for OptionalTypeId {
+    fn from(x: Option<core::any::TypeId>) -> OptionalTypeId {
+        OptionalTypeId {
+            tag: x.is_some(),
+            data: x.map(|y| unsafe { core::mem::transmute::<_, TypeId>(y) }).unwrap_or(0),
+        }
+    }
+}
+
+impl Into<Option<core::any::TypeId>> for OptionalTypeId {
+    fn into(self) -> Option<core::any::TypeId> {
+        if self.tag {
+            Some(unsafe { core::mem::transmute::<TypeId, _>(self.data) })
+        } else {
+            None
+        }
+    }
 }
 
 #[repr(C)]
@@ -50,7 +72,10 @@ pub struct WrapperInner {
 pub struct Wrapper {
     pub inner: WrapperInner,
 
-    pub typ: Option<core::any::TypeId>,
+    /// This is kind of a hack, but it should allow clean usage in C code
+    /// Just make sure to treat this as an opaque value.
+    /// It's value depends on rustc internals.
+    pub typ: OptionalTypeId,
 
     /// The .destroy function may only be called with .inner
     /// as argument and must be called at most once
@@ -154,7 +179,7 @@ impl Wrapper {
     pub fn null() -> Self {
         Self {
             inner: WrapperInner::null(),
-            typ: None,
+            typ: None.into(),
             destroy: None,
             klone: None,
         }
@@ -177,7 +202,7 @@ impl Wrapper {
     {
         Self {
             inner: Wrapped::wrap(Arc::into_raw(x)),
-            typ: Some(core::any::TypeId::of::<T>()),
+            typ: Some(core::any::TypeId::of::<T>()).into(),
             destroy: Some(ffiwrap_destroy::<T>),
             klone: Some(ffiwrap_klone::<T>),
         }
@@ -186,7 +211,7 @@ impl Wrapper {
     pub fn try_ptr_clone(&self) -> Option<Wrapper> {
         self.klone.map(|i| Wrapper {
             inner: i(&self.inner),
-            typ: self.typ.clone(),
+            typ: self.typ,
             destroy: self.destroy.clone(),
             klone: Some(i),
         })
@@ -200,7 +225,7 @@ impl Wrapper {
     where
         T: ?Sized + 'static,
     {
-        self.typ == Some(core::any::TypeId::of::<T>())
+        self.typ == Some(core::any::TypeId::of::<T>()).into()
     }
 
     /// convenient wrapper around [`Wrapper::is_of_type`]
@@ -284,10 +309,8 @@ impl Wrapper {
 
         // To catch 'use-after-free' bugs regardless of the return
         // value of 'destroy', we always reset the 'data' ptr.
-        self.inner.data = core::ptr::null_mut();
-
-        // Reset the rest of this struct
-        self.inner.meta = WrapMeta::None;
+        self.inner = WrapperInner::null();
+        self.typ = None.into();
         self.klone = None;
 
         ret.unwrap_or(false)
