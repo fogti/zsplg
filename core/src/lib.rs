@@ -52,7 +52,7 @@ impl From<RealOptObj> for Object {
             Some(y) => unsafe {
                 let [data, meta] = crate::fatptr::decomp(Arc::into_raw(y));
                 Object {
-                    data: std::mem::transmute::<_, _>(data),
+                    data: data as *const c_void,
                     meta,
                 }
             },
@@ -67,12 +67,7 @@ impl From<RealOptObj> for Object {
 impl Into<RealOptObj> for Object {
     fn into(self) -> RealOptObj {
         if !self.data.is_null() && self.meta != 0 {
-            Some(unsafe {
-                Arc::from_raw(crate::fatptr::recomp([
-                    std::mem::transmute::<_, _>(self.data),
-                    self.meta,
-                ]))
-            })
+            Some(unsafe { Arc::from_raw(crate::fatptr::recomp([self.data as usize, self.meta])) })
         } else {
             None
         }

@@ -17,12 +17,7 @@ pub unsafe extern "C" fn zsplg_open(file: *const c_char, modname: *const c_char)
     } else {
         match os_str_bytes::OsStrBytes::from_bytes(CStr::from_ptr(file).to_bytes()) {
             Ok(x) => Some(x),
-            Err(_) => {
-                return Err(Into::<Object>::into(Some(
-                    Arc::new(FFIError::Encoding) as Arc<dyn Any + Send + Sync>
-                )))
-                .into()
-            }
+            Err(_) => return Err(wrap(FFIError::Encoding)).into(),
         }
     };
     wrapres(Plugin::new(
