@@ -46,6 +46,12 @@ pub struct FFIResult {
 
 pub type RealOptObj = Option<Arc<dyn Any + Send + Sync>>;
 
+impl Object {
+    pub fn is_null(&self) -> bool {
+        self.data.is_null() && self.meta == 0
+    }
+}
+
 impl From<RealOptObj> for Object {
     fn from(x: RealOptObj) -> Object {
         match x {
@@ -66,7 +72,7 @@ impl From<RealOptObj> for Object {
 
 impl Into<RealOptObj> for Object {
     fn into(self) -> RealOptObj {
-        if !self.data.is_null() && self.meta != 0 {
+        if !self.is_null() {
             Some(unsafe { Arc::from_raw(crate::fatptr::recomp([self.data as usize, self.meta])) })
         } else {
             None
