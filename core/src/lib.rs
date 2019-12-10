@@ -1,10 +1,4 @@
-use std::{
-    any::Any,
-    ffi::c_void,
-    sync::Arc,
-    fmt,
-    io::Error as IoError,
-};
+use std::{any::Any, ffi::c_void, fmt, io::Error as IoError, sync::Arc};
 
 mod fatptr;
 
@@ -17,6 +11,7 @@ pub enum Error {
 }
 
 impl From<IoError> for Error {
+    #[inline(always)]
     fn from(x: IoError) -> Error {
         Error::Io(x)
     }
@@ -84,45 +79,32 @@ impl Into<RealOptObj> for Object {
     }
 }
 
-pub fn wrapres<T, F>(x: Result<T, T>, f: F) -> FFIResult
-where
-    F: FnOnce(T) -> Object,
-{
-    let is_success = x.is_ok();
-    FFIResult {
-        data: match x {
-            Ok(y) | Err(y) => f(y),
-        },
-        is_success,
+impl From<Result<Object, Object>> for FFIResult {
+    #[inline]
+    fn from(x: Result<Object, Object>) -> FFIResult {
+        let is_success = x.is_ok();
+        FFIResult {
+            data: match x {
+                Ok(y) | Err(y) => y,
+            },
+            is_success,
+        }
     }
 }
 
-pub fn partial_wrap<T>(x: T) -> RealOptObj
+#[inline]
+pub fn wrap<T>(x: T) -> Object
 where
     T: Send + Sync + 'static,
 {
-    Some(Arc::new(x) as Arc<dyn Any + Send + Sync + 'static>)
+    Some(Arc::new(x) as Arc<dyn Any + Send + Sync + 'static>).into()
 }
 
-pub fn full_wrapres<T, E>(x: Result<T, E>) -> FFIResult
+#[inline]
+pub fn wrapres<T, E>(x: Result<T, E>) -> FFIResult
 where
     T: Send + Sync + 'static,
     E: Send + Sync + 'static,
 {
-    wrapres(
-        x.map(partial_wrap::<T>).map_err(partial_wrap::<E>),
-        Into::into,
-    )
-}
-
-impl From<Result<Object, Object>> for FFIResult {
-    fn from(x: Result<Object, Object>) -> FFIResult {
-        wrapres(x, std::convert::identity)
-    }
-}
-
-impl From<Result<RealOptObj, RealOptObj>> for FFIResult {
-    fn from(x: Result<RealOptObj, RealOptObj>) -> FFIResult {
-        wrapres(x, Into::into)
-    }
+    x.map(wrap::<T>).map_err(wrap::<E>).into()
 }

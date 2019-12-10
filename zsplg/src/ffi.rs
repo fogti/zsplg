@@ -6,8 +6,9 @@ use std::{
     sync::Arc,
 };
 
-use zsplg_core::{Error as FFIError, Object, FFIResult, RealOptObj, wrapres, partial_wrap, full_wrapres};
 use crate::{Handle, Plugin};
+use try_block::try_block;
+use zsplg_core::{wrap, wrapres, Error as FFIError, FFIResult, Object, RealOptObj};
 
 #[no_mangle]
 pub unsafe extern "C" fn zsplg_open(file: *const c_char, modname: *const c_char) -> FFIResult {
@@ -24,7 +25,7 @@ pub unsafe extern "C" fn zsplg_open(file: *const c_char, modname: *const c_char)
             }
         }
     };
-    full_wrapres(Plugin::new(
+    wrapres(Plugin::new(
         file.as_ref().map(std::ops::Deref::deref),
         CStr::from_ptr(modname),
     ))
@@ -36,9 +37,8 @@ pub unsafe extern "C" fn zsplg_h_create(
     argc: usize,
     argv: *const Object,
 ) -> FFIResult {
-    let parent: RealOptObj = parent.into();
-    let inner = || {
-        if let Some(parent) = parent {
+    wrapres(try_block! {
+        if let Some(parent) = Into::<RealOptObj>::into(parent) {
             // each branch should run 'mem::forget', because the caller owns the 'parent'
             match parent.downcast::<Plugin>() {
                 Ok(parent) => {
@@ -51,9 +51,7 @@ pub unsafe extern "C" fn zsplg_h_create(
             }
         }
         Err(FFIError::Cast)
-    };
-
-    full_wrapres(inner())
+    })
 }
 
 #[no_mangle]
@@ -87,7 +85,7 @@ pub unsafe extern "C" fn zsplg_call(
     // the caller owns the `Arc`
     std::mem::forget(obj);
 
-    wrapres(ret.map_err(|x| partial_wrap(x).into()), Into::into)
+    ret.map_err(wrap).into()
 }
 
 /// This function converts an error to a wrapped string
@@ -95,11 +93,10 @@ pub unsafe extern "C" fn zsplg_call(
 #[no_mangle]
 pub extern "C" fn zsplg_error_to_str(e: Object) -> Object {
     let obj: RealOptObj = e.into();
-    partial_wrap(
+    wrap(
         obj.and_then(|obj| obj.downcast_ref::<FFIError>().map(|e| format!("{}", e)))
             .unwrap_or_else(String::new),
     )
-    .into()
 }
 
 #[no_mangle]
@@ -114,11 +111,10 @@ pub extern "C" fn zsplg_is_null(w: Object) -> bool {
 #[no_mangle]
 pub unsafe extern "C" fn zsplg_new_str(x: *const c_char) -> Object {
     if !x.is_null() {
-        partial_wrap(CString::new(CStr::from_ptr(x).to_bytes().to_owned()))
+        wrap(CString::new(CStr::from_ptr(x).to_bytes().to_owned()))
     } else {
-        None
+        None.into()
     }
-    .into()
 }
 
 /// Needed to access the error string returned by `zsplg_error_to_str` or `zsplg_new_str`
@@ -133,7 +129,7 @@ pub unsafe extern "C" fn zsplg_get_str(w: Object) -> *const c_char {
 }
 
 #[no_mangle]
+#[inline]
 pub unsafe extern "C" fn zsplg_destroy(w: Object) -> bool {
-    let obj: RealOptObj = w.into();
-    obj.is_some()
+    Into::<RealOptObj>::into(w).is_some()
 }
