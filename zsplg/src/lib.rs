@@ -1,6 +1,5 @@
-pub mod ffi_extern;
-pub mod ffi_intern;
-use ffi_extern::{Object, RealOptObj};
+pub mod ffi;
+use zsplg_core::{Object, RealOptObj};
 
 use libloading::Symbol;
 use std::{
@@ -58,7 +57,7 @@ impl Plugin {
         };
         // call initialization function
         ret.user_data =
-            (ret.get_fn::<extern "C" fn() -> ffi_extern::Object>(b"", b"init")?)().into();
+            (ret.get_fn::<extern "C" fn() -> zsplg_core::Object>(b"", b"init")?)().into();
         Ok(ret)
     }
 

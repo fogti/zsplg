@@ -1,107 +1,13 @@
 /// === C FFI ===
 use std::{
     any::Any,
-    ffi::{c_void, CStr, CString},
+    ffi::{CStr, CString},
     os::raw::c_char,
     sync::Arc,
 };
 
-use crate::ffi_intern::Error as FFIError;
+use zsplg_core::{Error as FFIError, Object, FFIResult, RealOptObj, wrapres, partial_wrap, full_wrapres};
 use crate::{Handle, Plugin};
-
-//type ResultWrap = crate::ffi_intern::Result<FFIWrapper>;
-
-/// real FFI wrapper
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[must_use]
-pub struct Object {
-    data: *const c_void,
-    meta: usize,
-}
-
-pub struct FFIResult {
-    data: Object,
-    // optimize padding
-    is_success: bool,
-}
-
-pub(crate) type RealOptObj = Option<Arc<dyn Any + Send + Sync>>;
-
-impl From<RealOptObj> for Object {
-    fn from(x: RealOptObj) -> Object {
-        match x {
-            Some(y) => unsafe {
-                let [data, meta] = zsplg_core::fatptr::decomp(Arc::into_raw(y));
-                Object {
-                    data: std::mem::transmute::<_, _>(data),
-                    meta,
-                }
-            },
-            None => Object {
-                data: std::ptr::null(),
-                meta: 0,
-            },
-        }
-    }
-}
-
-impl Into<RealOptObj> for Object {
-    fn into(self) -> RealOptObj {
-        if !self.data.is_null() && self.meta != 0 {
-            Some(unsafe {
-                Arc::from_raw(zsplg_core::fatptr::recomp([
-                    std::mem::transmute::<_, _>(self.data),
-                    self.meta,
-                ]))
-            })
-        } else {
-            None
-        }
-    }
-}
-
-fn wrapres<T, F>(x: Result<T, T>, f: F) -> FFIResult
-where
-    F: FnOnce(T) -> Object,
-{
-    let is_success = x.is_ok();
-    FFIResult {
-        data: match x {
-            Ok(y) | Err(y) => f(y),
-        },
-        is_success,
-    }
-}
-
-fn partial_wrap<T>(x: T) -> RealOptObj
-where
-    T: Send + Sync + 'static,
-{
-    Some(Arc::new(x) as Arc<dyn Any + Send + Sync + 'static>)
-}
-
-fn full_wrapres<T, E>(x: Result<T, E>) -> FFIResult
-where
-    T: Send + Sync + 'static,
-    E: Send + Sync + 'static,
-{
-    wrapres(
-        x.map(partial_wrap::<T>).map_err(partial_wrap::<E>),
-        Into::into,
-    )
-}
-
-impl From<Result<Object, Object>> for FFIResult {
-    fn from(x: Result<Object, Object>) -> FFIResult {
-        wrapres(x, std::convert::identity)
-    }
-}
-
-impl From<Result<RealOptObj, RealOptObj>> for FFIResult {
-    fn from(x: Result<RealOptObj, RealOptObj>) -> FFIResult {
-        wrapres(x, Into::into)
-    }
-}
 
 #[no_mangle]
 pub unsafe extern "C" fn zsplg_open(file: *const c_char, modname: *const c_char) -> FFIResult {
