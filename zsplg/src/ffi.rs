@@ -4,10 +4,13 @@ use std::{
     os::raw::c_char,
 };
 
-use crate::{Handle, Plugin};
-use try_block::try_block;
+#[cfg(feature = "loader")]
+use {crate::loader::{Handle, Plugin}, try_block::try_block};
+
+#[cfg_attr(not(feature = "loader"), allow(unused_imports))]
 use zsplg_core::{wrap, wrapres, Error as FFIError, FFIResult, Object, RealOptObj};
 
+#[cfg(feature = "loader")]
 #[no_mangle]
 pub unsafe extern "C" fn zsplg_open(file: *const c_char, modname: *const c_char) -> FFIResult {
     wrapres(Plugin::new(
@@ -25,6 +28,7 @@ pub unsafe extern "C" fn zsplg_open(file: *const c_char, modname: *const c_char)
     ))
 }
 
+#[cfg(feature = "loader")]
 #[no_mangle]
 pub unsafe extern "C" fn zsplg_h_create(
     parent: Object,
@@ -48,6 +52,7 @@ pub unsafe extern "C" fn zsplg_h_create(
     })
 }
 
+#[cfg(feature = "loader")]
 #[no_mangle]
 pub unsafe extern "C" fn zsplg_call(
     obj: Object,
@@ -59,7 +64,7 @@ pub unsafe extern "C" fn zsplg_call(
     let obj = obj.unwrap();
 
     let ret = try_block! {
-        let rtmf: &dyn crate::RTMultiFn = if let Some(handle) = obj.downcast_ref::<Handle>() {
+        let rtmf: &dyn crate::loader::RTMultiFn = if let Some(handle) = obj.downcast_ref::<Handle>() {
             handle
         } else if let Some(plg) = obj.downcast_ref::<Plugin>() {
             plg
